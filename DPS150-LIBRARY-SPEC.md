@@ -2,7 +2,7 @@
 
 ## Status
 
-Plan approved; this specification is a draft for review, and implementation is on hold. This is a host-control library, not an official device protocol specification.
+Implementation is in progress. This specification is a draft for review, not an official FNIRSI device protocol specification.
 
 ## Purpose
 

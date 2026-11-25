@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] The package installs on CPython 3.10+ and uses pySerial for cross-platform USB VCP access.
-- [ ] Construction performs no serial I/O; explicit `open()` / `close()` and context-manager use manage the connection.
-- [ ] Opening, closing, and status reads do not send commands that change output state.
-- [ ] Private frame encoding/decoding validates length and checksum and handles fragmented or malformed input with explicit typed errors.
-- [ ] The serial timeout is finite and configurable; communication errors preserve their cause and are not automatically retried.
-- [ ] Fake-serial tests cover successful status reads, fragmented frames, malformed frames, timeout, and cleanup without hardware.
+- [x] The package installs on CPython 3.10+ and uses pySerial for cross-platform USB VCP access.
+- [x] Construction performs no serial I/O; explicit `open()` / `close()` and context-manager use manage the connection.
+- [x] Opening, closing, and status reads do not send commands that change output state.
+- [x] Private frame encoding/decoding validates length and checksum and handles fragmented or malformed input with explicit typed errors.
+- [x] The serial timeout is finite and configurable; communication errors preserve their cause and are not automatically retried.
+- [x] Fake-serial tests cover successful status reads, fragmented frames, malformed frames, timeout, and cleanup without hardware.

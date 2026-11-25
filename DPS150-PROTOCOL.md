@@ -2,6 +2,16 @@
 
 本文件比對 [`svenk123/dps150tool`](https://github.com/svenk123/dps150tool/commit/e7181fce9f9ff9b2b749e9921e8c710cd543dedd)（以下稱 C 實作）、[`cajunpanda/dps150`](https://github.com/cajunpanda/dps150/commit/6a088ae9f57cf5b72377123e03b47783258680e1)（以下稱 cajunpanda Python 實作）、[`cho45/fnirsi-dps-150`](https://github.com/cho45/fnirsi-dps-150/commit/6107bd34531aa52692d757e3b82d9573750311ac)（以下稱 WebSerial 實作），以及 [`KochC/DPS-150-python-library`](https://github.com/KochC/DPS-150-python-library/commit/ae1df445d5993bdc0839d863ac1ba25d9d1bbfae)（以下稱 KochC Python library）的指定提交。所有引用均固定在各自 commit SHA，並附檔案行號。以下是程式碼與各自 README／協定筆記記載的行為，不是經本文獨立硬體驗證的正式規格：WebSerial README 明示其協定摘要「speculative and not accurate」，而該專案的協定筆記稱其非官方，同時自述曾以 USB sniffing 與實機測試逆向整理；兩者均只作該專案自身的主張。[WebSerial README L74–L78](https://github.com/cho45/fnirsi-dps-150/blob/6107bd34531aa52692d757e3b82d9573750311ac/README.md#L74-L78) · [WebSerial 協定筆記 L6–L10](https://github.com/cho45/fnirsi-dps-150/blob/6107bd34531aa52692d757e3b82d9573750311ac/docs/FNIRSI_DPS-150_Protocol.md#L6-L10)。C README 稱裝置為「DPS150PD」；本文不據 repository 名稱推定各實作目標的型號或韌體完全相同。[C README](https://github.com/svenk123/dps150tool/blob/e7181fce9f9ff9b2b749e9921e8c710cd543dedd/README.md#L17-L22)
 
+## 目標實機觀察（單一測試裝置）
+
+以下結果來自本次透過 COM64 測試的一台裝置，不代表所有 DPS150 韌體，也不是 FNIRSI 官方規格：
+
+- 在 115200、8N1、RTS/CTS 關閉時，直接送出 `GET`（command `0xA1`、type `0xFF`、空 payload）於 2 秒內沒有收到回應。
+- 送出 session connect（command `0xC1`、type `0x00`、payload `01`）後，再送同一個 `GET`，收到 command `0xA1`、type `0xFF`、139-byte payload 的有效 frame。
+- 讀回 payload offset 107 為 `0`（output disabled）。兩次 open/query/close cycle 都讀回 disabled；本次未送出 setpoint 或 output-control 命令，也未執行 output-ON 測試。
+
+目前程式只依賴上述單一裝置觀察實作 session 與 status read；其他型號／韌體的 session 行為仍未確認。
+
 ## 封包與傳輸
 
 本文整理的是主機端串列介面上使用的封包層；cajunpanda 專案將裝置描述為 AT32 USB-CDC，但這些來源沒有規定實體 UART 腳位或電氣規格，因此不能由此文件推定可直接連接 TTL UART。[cajunpanda USB identity L90–92](https://github.com/cajunpanda/dps150/blob/6a088ae9f57cf5b72377123e03b47783258680e1/dps150.py#L90-L92)
