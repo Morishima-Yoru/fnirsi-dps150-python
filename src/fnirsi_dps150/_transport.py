@@ -7,7 +7,7 @@ from typing import Final
 
 import serial
 
-from ._protocol import _Frame, _decode_frame, _encode_frame
+from ._protocol import _RESPONSE_HEADER, _Frame, _decode_frame, _encode_frame
 from .definitions.exceptions import (
     DPS150CommunicationError,
     DPS150ConnectionError,
@@ -137,7 +137,7 @@ class _SerialTransport:
     ) -> _Frame:
         """Read and validate one response before the configured deadline."""
         header = self._read_exact(serial_port, _RESPONSE_HEADER_SIZE, deadline)
-        if header[0] != 0xF0:
+        if header[0] != _RESPONSE_HEADER:
             raise DPS150ProtocolError("Frame has an invalid response header.")
 
         payload_length = header[3]

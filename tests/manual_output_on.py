@@ -2,11 +2,12 @@
 
 import math
 import os
+from typing import Final
 
 from fnirsi_dps150 import DPS150, DeviceStatus
 
-_OPT_IN_VARIABLE = "DPS150_ALLOW_OUTPUT_ON_TEST"
-_NO_LOAD_CONFIRMATION = "NO LOAD CONNECTED"
+_OPT_IN_VARIABLE: Final[str] = "DPS150_ALLOW_OUTPUT_ON_TEST"
+_NO_LOAD_CONFIRMATION: Final[str] = "NO LOAD CONNECTED"
 
 
 def _read_ceiling(name: str) -> float:

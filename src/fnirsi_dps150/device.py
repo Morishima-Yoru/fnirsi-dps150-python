@@ -5,29 +5,18 @@ from __future__ import annotations
 import math
 import struct
 from types import TracebackType
-from typing import Final
 
 from ._protocol import _Frame
 from ._transport import _SerialTransport
 from .definitions.exceptions import DPS150Error, DPS150ProtocolError
+from .definitions.namespace import (
+    _MEASUREMENTS_PAYLOAD_SIZE,
+    _STATUS_PAYLOAD_SIZE,
+    _ProtocolCommand,
+    _ProtocolType,
+    _StatusOffset,
+)
 from .models import DeviceStatus, Measurements
-
-_GET_COMMAND: Final[int] = 0xA1
-_SET_COMMAND: Final[int] = 0xB1
-_CONNECT_COMMAND: Final[int] = 0xC1
-_SESSION_TYPE: Final[int] = 0x00
-_STATUS_TYPE: Final[int] = 0xFF
-_MEASUREMENTS_TYPE: Final[int] = 195
-_VOLTAGE_SETPOINT_TYPE: Final[int] = 193
-_CURRENT_SETPOINT_TYPE: Final[int] = 194
-_OUTPUT_TYPE: Final[int] = 219
-_OUTPUT_ENABLED_OFFSET: Final[int] = 107
-_VOLTAGE_SETPOINT_OFFSET: Final[int] = 4
-_CURRENT_SETPOINT_OFFSET: Final[int] = 8
-_VOLTAGE_LIMIT_OFFSET: Final[int] = 111
-_CURRENT_LIMIT_OFFSET: Final[int] = 115
-_STATUS_PAYLOAD_SIZE: Final[int] = 119
-_MEASUREMENTS_PAYLOAD_SIZE: Final[int] = 12
 
 
 class DPS150:
@@ -72,7 +61,11 @@ class DPS150:
         if not self._transport.open():
             return
         try:
-            self._transport.send(_CONNECT_COMMAND, _SESSION_TYPE, b"\x01")
+            self._transport.send(
+                _ProtocolCommand.CONNECT,
+                _ProtocolType.SESSION,
+                b"\x01",
+            )
         except DPS150Error:
             self._transport.close()
             raise
@@ -96,25 +89,25 @@ class DPS150:
                 communication fails.
         """
         frame = self._request(
-            _GET_COMMAND,
-            _STATUS_TYPE,
+            _ProtocolCommand.GET,
+            _ProtocolType.STATUS,
             b"",
-            expected_response=(_GET_COMMAND, _STATUS_TYPE),
+            expected_response=(_ProtocolCommand.GET, _ProtocolType.STATUS),
         )
         if len(frame.payload) < _STATUS_PAYLOAD_SIZE:
             raise DPS150ProtocolError("Status response is too short.")
 
-        output_enabled = frame.payload[_OUTPUT_ENABLED_OFFSET]
+        output_enabled = frame.payload[_StatusOffset.OUTPUT_ENABLED]
         if output_enabled not in (0, 1):
             raise DPS150ProtocolError("Status contains an invalid output state.")
         voltage_limit = _read_float32(
             frame.payload,
-            _VOLTAGE_LIMIT_OFFSET,
+            _StatusOffset.VOLTAGE_LIMIT,
             "voltage limit",
         )
         current_limit = _read_float32(
             frame.payload,
-            _CURRENT_LIMIT_OFFSET,
+            _StatusOffset.CURRENT_LIMIT,
             "current limit",
         )
         if voltage_limit < 0 or current_limit < 0:
@@ -122,12 +115,12 @@ class DPS150:
         return DeviceStatus(
             set_voltage=_read_float32(
                 frame.payload,
-                _VOLTAGE_SETPOINT_OFFSET,
+                _StatusOffset.VOLTAGE_SETPOINT,
                 "voltage setpoint",
             ),
             set_current=_read_float32(
                 frame.payload,
-                _CURRENT_SETPOINT_OFFSET,
+                _StatusOffset.CURRENT_SETPOINT,
                 "current setpoint",
             ),
             output_enabled=bool(output_enabled),
@@ -150,10 +143,13 @@ class DPS150:
                 communication fails.
         """
         frame = self._request(
-            _GET_COMMAND,
-            _MEASUREMENTS_TYPE,
+            _ProtocolCommand.GET,
+            _ProtocolType.MEASUREMENTS,
             b"",
-            expected_response=(_GET_COMMAND, _MEASUREMENTS_TYPE),
+            expected_response=(
+                _ProtocolCommand.GET,
+                _ProtocolType.MEASUREMENTS,
+            ),
         )
         if len(frame.payload) < _MEASUREMENTS_PAYLOAD_SIZE:
             raise DPS150ProtocolError("Measurement response is too short.")
@@ -181,7 +177,11 @@ class DPS150:
                 f"Voltage {value} V exceeds the device-reported limit "
                 f"of {status.voltage_limit} V."
             )
-        self._transport.send(_SET_COMMAND, _VOLTAGE_SETPOINT_TYPE, payload)
+        self._transport.send(
+            _ProtocolCommand.SET,
+            _ProtocolType.VOLTAGE_SETPOINT,
+            payload,
+        )
 
     def set_current(self, current: float) -> None:
         """Set the output current limit without enabling output.
@@ -201,7 +201,11 @@ class DPS150:
                 f"Current {value} A exceeds the device-reported limit "
                 f"of {status.current_limit} A."
             )
-        self._transport.send(_SET_COMMAND, _CURRENT_SETPOINT_TYPE, payload)
+        self._transport.send(
+            _ProtocolCommand.SET,
+            _ProtocolType.CURRENT_SETPOINT,
+            payload,
+        )
 
     def set_output(self, enabled: bool) -> None:
         """Send an explicit output-enable or output-disable command.
@@ -218,7 +222,11 @@ class DPS150:
         """
         if not isinstance(enabled, bool):
             raise ValueError("enabled must be a bool.")
-        self._transport.send(_SET_COMMAND, _OUTPUT_TYPE, bytes((int(enabled),)))
+        self._transport.send(
+            _ProtocolCommand.SET,
+            _ProtocolType.OUTPUT,
+            bytes((int(enabled),)),
+        )
 
     def _request(
         self,
