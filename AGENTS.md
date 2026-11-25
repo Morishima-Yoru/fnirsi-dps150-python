@@ -1,5 +1,12 @@
 # Python Coding Style
 
+## Project Scope
+- This repository is a small Python hardware-control library, not a GUI application or service.
+- Prefer the smallest package structure that satisfies the library specification. Do not add GUI/FSM/controller layers, YAML configuration, singletons, Rich, daily log rotation, or an `AppLogger` wrapper unless a concrete library requirement justifies them.
+- Use the standard library and pySerial; add runtime dependencies only when the specification requires them.
+- Keep serial transport and packet details private behind the high-level `DPS150` interface. Hardware access must remain opt-in in tests, as specified in `DPS150-LIBRARY-SPEC.md`.
+- Apply the architecture and logging suggestions below only when they fit this library's scope; they do not require creating application infrastructure.
+
 ## Language and Tooling
 - Use CPython `>=3.10` for library compatibility. Development tools may use a newer version.
 - Use `uv` to manage Python environments.
