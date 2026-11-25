@@ -6,7 +6,6 @@ import math
 import struct
 from types import TracebackType
 
-from ._protocol import _Frame
 from ._transport import _SerialTransport
 from .definitions.exceptions import DPS150Error, DPS150ProtocolError
 from .definitions.namespace import (
@@ -88,7 +87,7 @@ class DPS150:
             :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
                 communication fails.
         """
-        frame = self._request(
+        frame = self._transport.exchange(
             _ProtocolCommand.GET,
             _ProtocolType.STATUS,
             b"",
@@ -142,7 +141,7 @@ class DPS150:
             :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
                 communication fails.
         """
-        frame = self._request(
+        frame = self._transport.exchange(
             _ProtocolCommand.GET,
             _ProtocolType.MEASUREMENTS,
             b"",
@@ -226,31 +225,6 @@ class DPS150:
             _ProtocolCommand.SET,
             _ProtocolType.OUTPUT,
             bytes((int(enabled),)),
-        )
-
-    def _request(
-        self,
-        command: int,
-        type_id: int,
-        payload: bytes = b"",
-        expected_response: tuple[int, int] | None = None,
-    ) -> _Frame:
-        """Send one private frame and wait for its response.
-
-        Args:
-            command: Protocol command byte.
-            type_id: Protocol data type byte.
-            payload: Request data.
-            expected_response: Optional command/type pair to match.
-
-        Returns:
-            The decoded response frame.
-        """
-        return self._transport.exchange(
-            command,
-            type_id,
-            payload,
-            expected_response=expected_response,
         )
 
     def __enter__(self) -> DPS150:
