@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation is in progress. This specification is a draft for review, not an official FNIRSI device protocol specification.
+Implementation is complete for behavior verified on the target unit. Unverified hardware-dependent operations remain intentionally unexposed; output-control command effects and nonzero measurement semantics are also not confirmed on the target. This specification remains a draft for review, not an official FNIRSI device protocol specification.
 
 ## Purpose
 

@@ -61,6 +61,14 @@ emergency shutdown. The nonzero measurement field mapping is based on
 reverse-engineered sources; only zero measurements were observed on the target
 unit while output was OFF.
 
+Protection, preset, system-setting, and baud-changing APIs are not exposed.
+The target returned raw GET responses for related types, but that did not
+verify their meanings, write behavior, native preset operations, or baud
+resynchronization. These methods are omitted rather than stubbed, so attempts
+to call them fail with `AttributeError`. See the target-specific evidence and
+raw payloads in
+[`DPS150-PROTOCOL.md`](DPS150-PROTOCOL.md).
+
 Automated tests use a fake serial port and never enable output. A hardware
 test that enables output must remain a separate manual opt-in, assume no load,
 require explicit operator confirmation and caller-provided voltage/current
