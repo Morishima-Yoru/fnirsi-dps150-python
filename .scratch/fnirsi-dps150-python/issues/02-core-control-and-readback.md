@@ -4,11 +4,13 @@
 
 **Blocked by:** 01 — Establish the installable serial-session foundation.
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] Voltage and current setters accept finite floats in V and A and reject invalid or verified out-of-range values without clamping.
-- [ ] Setpoint writes do not enable the output; only an explicit output-control call changes output state.
-- [ ] Explicit read methods return measurements and status in documented dataclasses.
-- [ ] Read and control behavior is exercised with fake-serial tests; default tests never turn output on.
-- [ ] Any hardware test that enables output is a separate manual opt-in, assumes no load, requires explicit confirmation and caller-supplied voltage/current ceilings, checks command/state readback only, and attempts to turn output off afterward.
-- [ ] The documentation does not claim loaded regulation or current-delivery validation from a no-load test.
+- [x] Voltage and current setters accept finite floats in V and A and reject invalid or verified out-of-range values without clamping; comparisons use the encoded float32 value.
+- [x] Setpoint writes do not issue output-control commands. COM64 readbacks stayed OFF during setpoint write/restore verification; changing output is a separate explicit API call.
+- [x] Explicit read methods return measurements and status in documented dataclasses.
+- [x] Read and control behavior is exercised with fake-serial tests; default tests never access hardware or enable its output.
+- [x] The separate manual output-ON helper requires an environment opt-in, exact no-load confirmation, caller-supplied voltage/current ceilings, checks command/state readback only, and attempts output OFF in `finally`. It was not run.
+- [x] Documentation does not claim loaded regulation or current-delivery validation from a no-load test.
+
+**Verification:** 28 offline unit tests, flake8, and `uv build` passed. On the target COM64 unit, status and measurements were read; with output OFF, setpoints were written to `0.0 V`/`0.0 A`, read back, and restored to `12.0 V`/`5.0 A`; output remained OFF. The `SET type 219` output-enable command was not tested, and no output-ON test was performed.

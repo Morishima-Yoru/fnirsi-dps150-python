@@ -8,10 +8,13 @@
 
 - 在 115200、8N1、RTS/CTS 關閉時，直接送出 `GET`（command `0xA1`、type `0xFF`、空 payload）於 2 秒內沒有收到回應。
 - 送出 session connect（command `0xC1`、type `0x00`、payload `01`）後，再送同一個 `GET`，收到 command `0xA1`、type `0xFF`、139-byte payload 的有效 frame。
-- 讀回 payload offset 107 為 `0`（output disabled）。兩次 open/query/close cycle 都讀回 disabled；本次未送出 setpoint 或 output-control 命令，也未執行 output-ON 測試。
+- 讀回 payload offset 107 為 `0`（output disabled）。多次唯讀查詢都讀回 disabled；本次未執行 output-ON 測試。
 - `GET type 0xFF` 的回應串流可能在完整 snapshot 前後夾帶有效欄位 frame（本次觀察到 types `195`、`192`、`226`、`227`、`196`）。因此 status read 只送一次 request，並在同一個有限 timeout 內比對 `A1/FF` snapshot；不啟動背景讀取。
+- `GET type 195` 回傳 12-byte payload；輸出關閉時以三個 little-endian float32 解讀均為 `0.0`。非零欄位的 voltage/current/power 對應目前仍依據逆向來源比對，未在目標機確認。
+- 在確認輸出關閉、記錄原 setpoints `12.0 V`／`5.0 A` 後，分別以 `SET type 193`、`SET type 194` 寫入 `0.0`，status snapshot 讀回兩者為零且 output 仍關閉；`finally` 還原兩個原值，最後讀回 `12.0 V`／`5.0 A` 且 output 仍關閉。整個過程未送 output-control command。電壓上限讀回值在這些查詢間約為 `19.764–19.773 V`，電流上限約為 `5.10 A`。
+- Output-enable `SET type 219` 未在目標機執行；output-ON command/state 行為仍未驗證，未宣稱其實機成功。
 
-目前程式只依賴上述單一裝置觀察實作 session 與 status read；其他型號／韌體的 session 行為仍未確認。
+目前程式依據上述單一裝置觀察實作 session、status、measurements 與 setpoint 控制；其他型號／韌體的行為仍未確認。
 
 ## 封包與傳輸
 

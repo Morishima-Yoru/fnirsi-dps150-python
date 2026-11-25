@@ -1,6 +1,6 @@
 # FNIRSI DPS150 Python Library
 
-A small, synchronous Python library for controlling the FNIRSI DPS150 over USB virtual serial. It provides an explicit serial session and a safe status read; hardware-dependent controls are added only after verification on the target unit.
+A small, synchronous Python library for controlling the FNIRSI DPS150 over USB virtual serial. It provides explicit status and measurement reads, setpoint controls, and a separate output-control method. Hardware-dependent behavior is documented only to the extent verified on the target unit.
 
 ## Project documents
 
@@ -33,29 +33,49 @@ uv build
 ## Usage
 
 Construction performs no I/O. `open()` sends the target-observed session
-handshake, not a setpoint or output-control command. `get_status()` explicitly
-reads whether the output is enabled. Closing the serial port sends no device
-command.
+handshake, not a setpoint or output-control command. `get_status()` and
+`get_measurements()` explicitly read typed snapshots. Setpoint writes do not
+enable output; changing output requires an explicit `set_output()` call.
+Closing the serial port sends no device command.
 
 ```python
 from fnirsi_dps150 import DPS150
 
 with DPS150(port="COM3", timeout=1.0) as device:
     status = device.get_status()
+    measurements = device.get_measurements()
+    device.set_voltage(5.0)
+    device.set_current(1.0)
 
-print(status.output_enabled)
+print(status.output_enabled, measurements.output_voltage)
 ```
 
 The library does not start a background reader. On the tested unit, status
 responses can be interleaved with other valid field frames; `get_status()`
 matches the requested snapshot within one finite timeout without retrying the
-request. Other device-specific behavior remains unsupported until verified.
+request. Setpoint limits are checked against the device-reported values using
+the exact float32 values sent on the wire. The target unit has not been
+command-tested for output control (`SET type 219`); `set_output()` sends a
+command but does not verify the resulting state. Do not rely on it as an
+emergency shutdown. The nonzero measurement field mapping is based on
+reverse-engineered sources; only zero measurements were observed on the target
+unit while output was OFF.
 
 Automated tests use a fake serial port and never enable output. A hardware
 test that enables output must remain a separate manual opt-in, assume no load,
 require explicit operator confirmation and caller-provided voltage/current
 ceilings, verify only command and state readback, and attempt to turn output
-off afterward.
+off afterward. The gated helper is not part of default test discovery; it was
+not run as part of this change. To run it deliberately in PowerShell:
+
+```powershell
+$env:DPS150_ALLOW_OUTPUT_ON_TEST = "1"
+uv run python tests/manual_output_on.py
+```
+
+It requires the exact no-load confirmation and ceilings before opening COM64
+(or the port in `DPS150_PORT`). It does not change setpoints or test loaded
+regulation/current delivery.
 
 ## Worktree order
 

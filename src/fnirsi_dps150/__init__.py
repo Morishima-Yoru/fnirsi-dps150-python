@@ -8,11 +8,12 @@ from .definitions.exceptions import (
     DPS150TimeoutError,
 )
 from .device import DPS150
-from .models import DeviceStatus
+from .models import DeviceStatus, Measurements
 
 __all__ = [
     "DPS150",
     "DeviceStatus",
+    "Measurements",
     "DPS150Error",
     "DPS150CommunicationError",
     "DPS150ConnectionError",
