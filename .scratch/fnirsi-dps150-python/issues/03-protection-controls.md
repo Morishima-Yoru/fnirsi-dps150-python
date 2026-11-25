@@ -4,10 +4,11 @@
 
 **Blocked by:** 02 — Deliver core power control and readback.
 
-**Status:** ready-for-agent
+**Status:** unsupported-on-current-evidence
 
-- [ ] Request/response types, payloads, and protection semantics are verified against the target unit before being exposed as supported.
-- [ ] Read and write operations use the confirmed representation and surface unsupported or unverified operations explicitly.
-- [ ] Protection writes do not implicitly enable or disable the output.
-- [ ] Fake-serial tests cover the confirmed encoding, decoding, and invalid values; hardware writes are opt-in and have documented recovery steps.
-- [ ] If the target behavior cannot be verified, the ticket records the missing evidence and the library does not claim the feature is supported.
+- [x] A read-only COM64 sweep of GET types 209–213 returned four-byte payloads: type 209 `0000f041`, 210 `3333a340`, 211 `00001643`, 212 `0000a042`, and 213 `0000a040`. These raw bytes are recorded without assigning semantics.
+- [ ] OVP/OCP meanings and GET representations are confirmed. **Unverified:** reference projects conflict between one-byte enable flags and float32 thresholds; the target GET payloads do not resolve the meaning.
+- [ ] SET types, payloads, valid ranges, readback behavior, and output-state side effects are confirmed. **Unverified:** no protection SET was tested; do not infer write semantics from GET payload shape.
+- [ ] OVP/OCP trip behavior is verified. **Unverified:** no protection trip was tested.
+- [ ] Public protection APIs and fake-serial tests implement only confirmed behavior; any hardware writes are opt-in with documented recovery steps. **Deferred:** no public protection API or fake protection tests were added because the target semantics and write behavior are unverified.
+- [x] The missing evidence is recorded and the library does not claim protection support on this target/evidence.
