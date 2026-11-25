@@ -4,9 +4,19 @@
 
 **Blocked by:** 02 — Deliver core power control and readback.
 
-**Status:** ready-for-agent
+**Status:** complete (unsupported on current evidence)
 
-- [ ] Native preset slot read/write and load/save semantics are verified on the target unit before being described as supported.
-- [ ] Public operations correspond to confirmed device-native preset behavior; the API does not present active setpoint writes as a native load command.
-- [ ] Fake-serial tests cover any confirmed preset frame formats without enabling output in the default test suite.
-- [ ] If native load/save behavior is absent or cannot be verified, no substitute preset API is added; the result and supporting evidence are documented.
+- [ ] Native preset slot read/write and load/save semantics are verified on the target unit before being described as supported. This remains intentionally unverified; the ticket is closed without claiming preset support.
+- [x] No public preset operations were added without confirmed device-native behavior; active setpoint writes are not presented as a native load command.
+- [x] Not applicable: no preset frame formats are confirmed, so no fake-serial preset tests were added.
+- [x] With native load/save behavior unverified, no substitute preset API was added; the read observation and evidence gap are documented below.
+
+### Current evidence (COM64, output OFF)
+
+- A read-only GET sweep returned a matching four-byte payload for every type 197–208: types 197, 199, 201, 203, 205, and 207 each returned `0000a040`; types 198, 200, 202, 204, 206, and 208 each returned `0000803f`.
+- No preset SET, save, or load was attempted. The raw GET responses establish only that these types returned four bytes; they do not establish payload meaning, slot mapping, writable/persistent behavior, or native load/save semantics.
+
+### Missing proof
+
+- Confirm which native command(s), if any, save or load a preset and how their effects can be distinguished from ordinary active setpoint writes.
+- Verify the slot-to-value mapping, SET payload representation, persistence, and native load/save behavior on the target unit before adding any public preset API or frame tests.
