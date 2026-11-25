@@ -83,9 +83,12 @@ class DPS150:
             :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
                 communication fails.
         """
-        frame = self._request(_GET_COMMAND, _STATUS_TYPE, b"")
-        if frame.command != _GET_COMMAND or frame.type_id != _STATUS_TYPE:
-            raise DPS150ProtocolError("Received an unexpected status response.")
+        frame = self._request(
+            _GET_COMMAND,
+            _STATUS_TYPE,
+            b"",
+            expected_response=(_GET_COMMAND, _STATUS_TYPE),
+        )
         if len(frame.payload) <= _OUTPUT_ENABLED_OFFSET:
             raise DPS150ProtocolError("Status response is too short.")
 
@@ -94,18 +97,30 @@ class DPS150:
             raise DPS150ProtocolError("Status contains an invalid output state.")
         return DeviceStatus(output_enabled=bool(output_enabled))
 
-    def _request(self, command: int, type_id: int, payload: bytes = b"") -> _Frame:
+    def _request(
+        self,
+        command: int,
+        type_id: int,
+        payload: bytes = b"",
+        expected_response: tuple[int, int] | None = None,
+    ) -> _Frame:
         """Send one private frame and wait for its response.
 
         Args:
             command: Protocol command byte.
             type_id: Protocol data type byte.
             payload: Request data.
+            expected_response: Optional command/type pair to match.
 
         Returns:
             The decoded response frame.
         """
-        return self._transport.exchange(command, type_id, payload)
+        return self._transport.exchange(
+            command,
+            type_id,
+            payload,
+            expected_response=expected_response,
+        )
 
     def __enter__(self) -> DPS150:
         """Open this device for use in a ``with`` statement."""

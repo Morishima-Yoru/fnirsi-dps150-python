@@ -46,9 +46,10 @@ with DPS150(port="COM3", timeout=1.0) as device:
 print(status.output_enabled)
 ```
 
-The library does not start a background reader. The status query requires the
-session handshake observed on the tested unit. Other device-specific behavior
-remains unsupported until verified.
+The library does not start a background reader. On the tested unit, status
+responses can be interleaved with other valid field frames; `get_status()`
+matches the requested snapshot within one finite timeout without retrying the
+request. Other device-specific behavior remains unsupported until verified.
 
 Automated tests use a fake serial port and never enable output. A hardware
 test that enables output must remain a separate manual opt-in, assume no load,

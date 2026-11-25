@@ -98,6 +98,25 @@ class DeviceTests(unittest.TestCase):
         )
         self.assertEqual(fake_serial.close_calls, 1)
 
+    def test_get_status_skips_unmatched_telemetry_frames(self) -> None:
+        telemetry = _encode_frame(0xA1, 195, bytes(12), header=0xF0)
+        fake_serial = FakeSerial(telemetry + make_status_response(), max_read_size=3)
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                status = device.get_status()
+
+        self.assertFalse(status.output_enabled)
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(0xC1, 0x00, b"\x01"),
+                _encode_frame(0xA1, 0xFF),
+            ],
+        )
+
     def test_get_status_rejects_invalid_output_state(self) -> None:
         fake_serial = FakeSerial(make_status_response(output_enabled=2))
         with patch(
@@ -123,7 +142,8 @@ class DeviceTests(unittest.TestCase):
                     device.get_status()
 
     def test_get_status_reports_timeout(self) -> None:
-        fake_serial = FakeSerial()
+        telemetry = _encode_frame(0xA1, 195, bytes(12), header=0xF0)
+        fake_serial = FakeSerial(telemetry)
         with patch(
             "fnirsi_dps150._transport.serial.Serial",
             return_value=fake_serial,

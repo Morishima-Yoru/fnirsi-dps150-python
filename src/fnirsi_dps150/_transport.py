@@ -86,14 +86,29 @@ class _SerialTransport:
 
         self._write_frame(serial_port, command, type_id, payload)
 
-    def exchange(self, command: int, type_id: int, payload: bytes) -> _Frame:
-        """Write one request frame and read one response frame."""
+    def exchange(
+        self,
+        command: int,
+        type_id: int,
+        payload: bytes,
+        expected_response: tuple[int, int] | None = None,
+    ) -> _Frame:
+        """Write once and read until the expected frame or one deadline.
+
+        Valid frames that do not match ``expected_response`` are consumed while
+        waiting for the requested frame. No request is retried.
+        """
         serial_port = self._serial
         if serial_port is None or not serial_port.is_open:
             raise DPS150ConnectionError("Open the device before sending a request.")
 
         self._write_frame(serial_port, command, type_id, payload)
-        return self._read_frame(serial_port)
+        deadline = time.monotonic() + self._timeout
+        while True:
+            frame = self._read_frame(serial_port, deadline)
+            response_id = (frame.command, frame.type_id)
+            if expected_response is None or response_id == expected_response:
+                return frame
 
     def _write_frame(
         self,
@@ -115,9 +130,12 @@ class _SerialTransport:
                 "Serial communication with the DPS150 failed."
             ) from error
 
-    def _read_frame(self, serial_port: serial.SerialBase) -> _Frame:
+    def _read_frame(
+        self,
+        serial_port: serial.SerialBase,
+        deadline: float,
+    ) -> _Frame:
         """Read and validate one response before the configured deadline."""
-        deadline = time.monotonic() + self._timeout
         header = self._read_exact(serial_port, _RESPONSE_HEADER_SIZE, deadline)
         if header[0] != 0xF0:
             raise DPS150ProtocolError("Frame has an invalid response header.")
