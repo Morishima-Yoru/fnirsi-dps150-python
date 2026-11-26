@@ -38,6 +38,36 @@ class Measurements:
 
 
 @dataclass(frozen=True, slots=True)
+class DeviceInfo:
+    """Device identity and version strings.
+
+    Attributes:
+        model: Device model identifier.
+        hardware_version: Device hardware revision.
+        firmware_version: Device firmware revision.
+    """
+
+    model: str
+    hardware_version: str
+    firmware_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionSettings:
+    """Verified OPP, OTP, and LVP thresholds; OVP/OCP are not included.
+
+    Attributes:
+        over_power_w: Over-power threshold in watts.
+        over_temperature_c: Over-temperature threshold in degrees Celsius.
+        low_voltage_v: Low-voltage threshold in volts.
+    """
+
+    over_power_w: float
+    over_temperature_c: float
+    low_voltage_v: float
+
+
+@dataclass(frozen=True, slots=True)
 class Preset:
     """Voltage and current values stored in one device preset slot.
 

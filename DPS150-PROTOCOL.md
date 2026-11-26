@@ -11,8 +11,12 @@
 - 多次唯讀查詢讀回 payload offset 107 為 `0`（output disabled）。另以獨立人工 opt-in、無負載程序驗證 output 命令與狀態回讀，詳見下方；測試後輸出保持關閉。
 - `GET type 0xFF` 的回應串流可能在完整 snapshot 前後夾帶有效欄位 frame（本次觀察到 types `195`、`192`、`226`、`227`、`196`）。因此 status read 只送一次 request，並在同一個有限 timeout 內比對 `A1/FF` snapshot；不啟動背景讀取。
 - `GET type 195` 回傳 12-byte payload；輸出關閉時以三個 little-endian float32 解讀均為 `0.0`。非零欄位的 voltage/current/power 對應目前仍依據逆向來源比對，未在目標機確認。
+- COM64 `GET type 192` and `GET type 196` returned finite float32 input-voltage and temperature values (approximately 19.98 V and 29.2 °C across reads). `GET types 222–224` returned UTF-8 text `DPS-150`, `V1.0`, and `V1.2`; these are exposed as read-only target fields.
+- COM64 `GET type 221` returned one-byte value `01`, mapped to CV mode by the source comparison. The read-only `get_regulation_mode()` exposes the known CC/CV values; only CV was observed on this unit.
 - 在確認輸出關閉、記錄原 setpoints `12.0 V`／`5.0 A` 後，分別以 `SET type 193`、`SET type 194` 寫入 `0.0`，status snapshot 讀回兩者為零且 output 仍關閉；`finally` 還原兩個原值，最後讀回 `12.0 V`／`5.0 A` 且 output 仍關閉。整個過程未送 output-control command。電壓上限讀回值在這些查詢間約為 `19.764–19.773 V`，電流上限約為 `5.10 A`。
-- 在操作者確認無負載後，以當時 setpoints `12.0 V`／`5.0 A` 作為有限 ceilings，且未改動 setpoints，送出 `SET type 219` payload `01`；隨後 status offset 107 回讀為 `1`。清理時送出 payload `00`，status 回讀為 `0`；再以唯讀連線確認 output disabled、setpoints 仍為 `12.0 V`／`5.0 A`。本次 output-control 測試未查詢或更改 buzzer／volume。這只驗證該測試裝置在無負載下的命令與狀態回讀，不驗證負載調節、電流輸出、100 W 能力或緊急關閉可靠性。
+- 在 output OFF 時，`get_protection_settings()` 讀回 OPP/OTP/LVP 為 `150 W` / `80 °C` / `5.0 V`。透過同一 public setter 將其暫改為 `149.5 W` / `79.5 °C` / `5.1 V`，三欄讀回相符（LVP float32 為 `5.0999999 V`），再寫回並確認原值完全復原。整個過程 output 保持 OFF，active setpoints 保持 `12.0 V` / `5.0 A`。此證據只驗證設定讀寫與復原，不驗證 trip 行為或有效範圍；未測 OVP/OCP。
+- 在操作者確認無負載並提供 `1.0 V` / `0.1 A` ceilings 後，人工 opt-in helper 將 setpoints 暫降至不超過上限的 float32 值，再送 `SET type 219` payload `01` 並讀回 ON；清理時送 payload `00` 並讀回 OFF，確認後恢復原本 `12.0 V` / `5.0 A`。後續唯讀 status 確認 output OFF、setpoints 與保護設定均已還原。第一次嘗試在送出 ON 前發現 float32 `0.1 A` 會向上取整超過 ceiling，安全中止且復原；helper 改為向下取整後再次測試成功。本測試僅驗證無負載命令／狀態回讀，不代表 loaded regulation、電流輸出、100 W 能力或緊急關閉可靠性。
+- 本輪沒有送出 `GET/SET type 209`、`GET/SET type 210` 或 `GET/SET type 215`。容量／能量 types 217/218 仍只觀察到零值；native preset load 與 baud switching 仍無目標證據。
 - 在 output OFF 時，對 GET types 197–227 各送一次唯讀請求；31 個 type 都收到 matching response，沒有 timeout 或 protocol error。以下是原始 payload，不代表欄位語義或 SET 行為已驗證：
 
 | GET type | 長度 | payload hex |
@@ -49,13 +53,13 @@
 | 226 | 4 | `943c9e41`（較早讀值：`d4249e41`） |
 | 227 | 4 | `3333a340` |
 
-- 上表 type 215 是先前的唯讀觀察；本次 capability validation 沒有查詢或寫入 volume/buzzer。
+- 上表 type 215 是先前的唯讀觀察；本輪未單獨送出 `GET/SET type 215`，也未解析或寫入音量欄位。`GET type 0xFF` 會回傳完整 status snapshot，其中包含原始系統欄位。
 - 後續在 output OFF 時，對六組 preset slot 各自將 voltage/current 欄位暫改為 `5.25 V` / `1.25 A`，GET readback 均符合；隨後各欄位還原為 `5.0 V` / `1.0 A` 並再次讀回。每組操作後 status 仍為 output OFF、active setpoints `12.0 V` / `5.0 A`。這確認 types 197–208 的 slot 欄位 GET/SET，不確認獨立 native load 命令，也未測斷電後保存。
 - 在 output OFF 時，type 214 brightness 由 `10` 改為 `9` 及 `0` 均讀回相同值，最後還原為 `10`；type 216 metering 由 `0` 改為 `1` 讀回後還原為 `0`。high-level setter 的讀回也確認相同結果；操作期間 output 與 active setpoints 不變。測試不涉及 type 215。
 - Types 217/218 的 raw GET 仍為零；其欄位語義與 SET/restore behavior 未驗證，未寫入或公開 API。
-- OVP/OCP 的 GET raw values 仍無法裁定門檻與 enable-flag 表示法；沒有送出 protection SET，也沒有測試保護觸發。Native preset load、baud 切換／重同步同樣未驗證，相關操作仍不支援。先前的 output-control SET type 219 已在獨立無負載測試中確認 ON/OFF command/state readback，但不代表負載能力或緊急 shutdown 可靠性。
+- OVP/OCP 的 GET raw values 仍無法裁定門檻與 enable-flag 表示法；本輪未對 types 209/210 送 SET，也沒有測試任何保護觸發。OPP/OTP/LVP types 211–213 的可逆 SET/GET 證據記錄於上方。Native preset load、baud 切換／重同步同樣未驗證，相關操作仍不支援。Output-control SET type 219 的無負載 command/state readback 不代表負載能力或緊急 shutdown 可靠性。
 
-目前程式依據上述單一裝置觀察實作 session、status、setpoint、preset slot 與 brightness/metering 控制；measurements 的回應長度及 output-OFF 零值已觀察，但非零欄位語義仍依據逆向來源。其他型號／韌體的行為仍未確認。
+目前程式依據上述單一裝置觀察實作 session、status、setpoint、input voltage、temperature、regulation mode、device info、OPP/OTP/LVP、preset slot 與 brightness/metering 控制；output measurements 的回應長度及 output-OFF 零值已觀察，但非零欄位語義仍依據逆向來源。其他型號／韌體的行為仍未確認。
 
 ## 封包與傳輸
 

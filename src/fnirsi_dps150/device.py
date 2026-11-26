@@ -17,9 +17,17 @@ from .definitions.namespace import (
     _STATUS_PAYLOAD_SIZE,
     _ProtocolCommand,
     _ProtocolType,
+    RegulationMode,
     _StatusOffset,
 )
-from .models import DeviceStatus, Measurements, Preset, SystemSettings
+from .models import (
+    DeviceInfo,
+    DeviceStatus,
+    Measurements,
+    Preset,
+    ProtectionSettings,
+    SystemSettings,
+)
 
 
 class DPS150:
@@ -162,6 +170,138 @@ class DPS150:
             output_power=_read_float32(frame.payload, 8, "output power"),
         )
 
+    def get_input_voltage(self) -> float:
+        """Read the device input voltage in volts.
+
+        Returns:
+            The input voltage reported by the device.
+
+        Raises:
+            :class:`~fnirsi_dps150.DPS150ProtocolError`: If the response is
+                malformed or contains a negative value.
+            :class:`~fnirsi_dps150.DPS150ConnectionError`: If the device is not
+                open.
+            :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
+                communication fails.
+        """
+        voltage = self._get_float_field(_ProtocolType.INPUT_VOLTAGE, "input voltage")
+        if voltage < 0:
+            raise DPS150ProtocolError("Device returned a negative input voltage.")
+        return voltage
+
+    def get_temperature(self) -> float:
+        """Read the device temperature in degrees Celsius.
+
+        Returns:
+            The temperature reported by the device.
+
+        Raises:
+            :class:`~fnirsi_dps150.DPS150ProtocolError`: If the response is
+                malformed or contains a non-finite value.
+            :class:`~fnirsi_dps150.DPS150ConnectionError`: If the device is not
+                open.
+            :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
+                communication fails.
+        """
+        return self._get_float_field(_ProtocolType.TEMPERATURE, "temperature")
+
+    def get_device_info(self) -> DeviceInfo:
+        """Read the model, hardware version, and firmware version.
+
+        Returns:
+            A typed snapshot of the device identity fields.
+
+        Raises:
+            :class:`~fnirsi_dps150.DPS150ProtocolError`: If a response is
+                malformed or is not valid non-empty UTF-8 text.
+            :class:`~fnirsi_dps150.DPS150ConnectionError`: If the device is not
+                open.
+            :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
+                communication fails.
+        """
+        return DeviceInfo(
+            model=self._get_text_field(_ProtocolType.MODEL, "model"),
+            hardware_version=self._get_text_field(
+                _ProtocolType.HARDWARE_VERSION,
+                "hardware version",
+            ),
+            firmware_version=self._get_text_field(
+                _ProtocolType.FIRMWARE_VERSION,
+                "firmware version",
+            ),
+        )
+
+    def get_regulation_mode(self) -> RegulationMode:
+        """Read the device's constant-current or constant-voltage mode.
+
+        Returns:
+            The regulation mode reported by the device.
+
+        Raises:
+            :class:`~fnirsi_dps150.DPS150ProtocolError`: If the response is
+                malformed or contains an unknown mode.
+            :class:`~fnirsi_dps150.DPS150ConnectionError`: If the device is not
+                open.
+            :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
+                communication fails.
+        """
+        frame = self._transport.exchange(
+            _ProtocolCommand.GET,
+            _ProtocolType.REGULATION_MODE,
+            b"",
+            expected_response=(
+                _ProtocolCommand.GET,
+                _ProtocolType.REGULATION_MODE,
+            ),
+        )
+        if len(frame.payload) < 1:
+            raise DPS150ProtocolError("Regulation-mode response is too short.")
+        try:
+            return RegulationMode(frame.payload[0])
+        except ValueError as error:
+            raise DPS150ProtocolError(
+                "Device returned an invalid regulation mode."
+            ) from error
+
+    def get_protection_settings(self) -> ProtectionSettings:
+        """Read the verified OPP, OTP, and LVP thresholds.
+
+        OVP/OCP are intentionally outside this method because their payload
+        formats conflict across the reference implementations.
+
+        Returns:
+            The three target-verified protection thresholds.
+
+        Raises:
+            :class:`~fnirsi_dps150.DPS150ProtocolError`: If a response is
+                malformed or contains a negative threshold.
+            :class:`~fnirsi_dps150.DPS150ConnectionError`: If the device is not
+                open.
+            :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
+                communication fails.
+        """
+        settings = ProtectionSettings(
+            over_power_w=self._get_float_field(
+                _ProtocolType.OVER_POWER_PROTECTION,
+                "over-power threshold",
+            ),
+            over_temperature_c=self._get_float_field(
+                _ProtocolType.OVER_TEMPERATURE_PROTECTION,
+                "over-temperature threshold",
+            ),
+            low_voltage_v=self._get_float_field(
+                _ProtocolType.LOW_VOLTAGE_PROTECTION,
+                "low-voltage threshold",
+            ),
+        )
+        if min(
+            settings.over_power_w,
+            settings.over_temperature_c,
+            settings.low_voltage_v,
+        ) < 0:
+            raise DPS150ProtocolError("Device returned a negative protection threshold.")
+        return settings
+
     def get_preset(self, slot: int) -> Preset:
         """Read stored voltage and current values without applying the preset.
 
@@ -202,8 +342,9 @@ class DPS150:
     def get_system_settings(self) -> SystemSettings:
         """Read verified brightness and metering settings.
 
-        Volume, capacity, and energy are intentionally omitted because their
-        semantics or write behavior have not been verified on the target unit.
+        Volume is intentionally omitted. Capacity and energy are not included
+        because only zero-valued GET responses are observed and their semantics
+        remain unverified.
 
         Returns:
             :class:`~fnirsi_dps150.SystemSettings` with brightness and metering
@@ -331,6 +472,47 @@ class DPS150:
             bytes((int(enabled),)),
         )
 
+    def set_protection_settings(self, settings: ProtectionSettings) -> None:
+        """Write OPP, OTP, and LVP thresholds while output is disabled.
+
+        The three writes are sent separately and are not atomic. OVP/OCP are
+        intentionally excluded.
+
+        Args:
+            settings: Verified thresholds to write.
+
+        Raises:
+            ValueError: If ``settings`` or any threshold is invalid.
+            :class:`~fnirsi_dps150.DPS150Error`: If output is enabled or serial
+                status/communication fails.
+        """
+        if not isinstance(settings, ProtectionSettings):
+            raise ValueError("settings must be a ProtectionSettings instance.")
+        values = (
+            (
+                _ProtocolType.OVER_POWER_PROTECTION,
+                settings.over_power_w,
+                "over-power threshold",
+            ),
+            (
+                _ProtocolType.OVER_TEMPERATURE_PROTECTION,
+                settings.over_temperature_c,
+                "over-temperature threshold",
+            ),
+            (
+                _ProtocolType.LOW_VOLTAGE_PROTECTION,
+                settings.low_voltage_v,
+                "low-voltage threshold",
+            ),
+        )
+        payloads = tuple(
+            (type_id, _prepare_setpoint(value, name)[1])
+            for type_id, value, name in values
+        )
+        self._get_status_for_setting_write()
+        for type_id, payload in payloads:
+            self._transport.send(_ProtocolCommand.SET, type_id, payload)
+
     def set_voltage(self, voltage: float) -> None:
         """Set the output voltage without enabling output.
 
@@ -402,7 +584,7 @@ class DPS150:
         )
 
     def _get_status_for_setting_write(self) -> DeviceStatus:
-        """Read status after requiring capability writes to be output-OFF.
+        """Read status after requiring settings writes to be output-OFF.
 
         Returns:
             The current status with output disabled.
@@ -414,9 +596,37 @@ class DPS150:
         status = self.get_status()
         if status.output_enabled:
             raise DPS150Error(
-                "Preset and system-setting writes are only verified with output disabled."
+                "Preset, system-setting, and protection writes require output disabled."
             )
         return status
+
+    def _get_float_field(self, type_id: _ProtocolType, field_name: str) -> float:
+        """Read one float32-valued field by its target-verified type."""
+        frame = self._transport.exchange(
+            _ProtocolCommand.GET,
+            type_id,
+            b"",
+            expected_response=(_ProtocolCommand.GET, type_id),
+        )
+        return _read_float32(frame.payload, 0, field_name)
+
+    def _get_text_field(self, type_id: _ProtocolType, field_name: str) -> str:
+        """Read and validate one UTF-8 text field."""
+        frame = self._transport.exchange(
+            _ProtocolCommand.GET,
+            type_id,
+            b"",
+            expected_response=(_ProtocolCommand.GET, type_id),
+        )
+        try:
+            value = frame.payload.decode("utf-8").rstrip("\x00").strip()
+        except UnicodeDecodeError as error:
+            raise DPS150ProtocolError(
+                f"Device returned invalid UTF-8 for {field_name}."
+            ) from error
+        if not value:
+            raise DPS150ProtocolError(f"Device returned an empty {field_name}.")
+        return value
 
     def __enter__(self) -> DPS150:
         """Open this device for use in a ``with`` statement."""

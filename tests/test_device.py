@@ -6,7 +6,14 @@ from unittest.mock import patch
 
 import serial
 
-from fnirsi_dps150 import DPS150, Measurements, Preset, SystemSettings
+from fnirsi_dps150 import (
+    DPS150,
+    DeviceInfo,
+    Measurements,
+    Preset,
+    ProtectionSettings,
+    SystemSettings,
+)
 from fnirsi_dps150._protocol import _encode_frame
 from fnirsi_dps150.definitions.exceptions import (
     DPS150CommunicationError,
@@ -15,7 +22,11 @@ from fnirsi_dps150.definitions.exceptions import (
     DPS150ProtocolError,
     DPS150TimeoutError,
 )
-from fnirsi_dps150.definitions.namespace import _ProtocolCommand, _ProtocolType
+from fnirsi_dps150.definitions.namespace import (
+    RegulationMode,
+    _ProtocolCommand,
+    _ProtocolType,
+)
 
 
 class FakeSerial:
@@ -210,6 +221,225 @@ class DeviceTests(unittest.TestCase):
             with DPS150(port="COM64") as device:
                 with self.assertRaises(DPS150ProtocolError):
                     device.get_measurements()
+
+    def test_get_input_voltage_and_temperature_reads_typed_fields(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(
+                _ProtocolType.INPUT_VOLTAGE,
+                struct.pack("<f", 19.99),
+            )
+            + make_field_response(
+                _ProtocolType.TEMPERATURE,
+                struct.pack("<f", 29.25),
+            )
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                input_voltage = device.get_input_voltage()
+                temperature = device.get_temperature()
+
+        self.assertAlmostEqual(input_voltage, 19.99, places=2)
+        self.assertEqual(temperature, 29.25)
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.INPUT_VOLTAGE),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.TEMPERATURE),
+            ],
+        )
+
+    def test_get_device_info_decodes_target_text_fields(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(_ProtocolType.MODEL, b"DPS-150")
+            + make_field_response(_ProtocolType.HARDWARE_VERSION, b"V1.0")
+            + make_field_response(_ProtocolType.FIRMWARE_VERSION, b"V1.2")
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                info = device.get_device_info()
+
+        self.assertEqual(
+            info,
+            DeviceInfo(
+                model="DPS-150",
+                hardware_version="V1.0",
+                firmware_version="V1.2",
+            ),
+        )
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.MODEL),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.HARDWARE_VERSION),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.FIRMWARE_VERSION),
+            ],
+        )
+
+    def test_get_device_info_rejects_invalid_utf8(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(_ProtocolType.MODEL, b"\xff")
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                with self.assertRaises(DPS150ProtocolError):
+                    device.get_device_info()
+
+    def test_get_regulation_mode_reads_known_modes(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(_ProtocolType.REGULATION_MODE, b"\x01")
+            + make_field_response(_ProtocolType.REGULATION_MODE, b"\x00")
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                constant_voltage = device.get_regulation_mode()
+                constant_current = device.get_regulation_mode()
+
+        self.assertEqual(constant_voltage, RegulationMode.CV)
+        self.assertEqual(constant_current, RegulationMode.CC)
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.REGULATION_MODE),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.REGULATION_MODE),
+            ],
+        )
+
+    def test_get_regulation_mode_rejects_unknown_value(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(_ProtocolType.REGULATION_MODE, b"\x02")
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                with self.assertRaises(DPS150ProtocolError):
+                    device.get_regulation_mode()
+
+    def test_get_protection_settings_reads_only_opp_otp_lvp(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(
+                _ProtocolType.OVER_POWER_PROTECTION,
+                struct.pack("<f", 150.0),
+            )
+            + make_field_response(
+                _ProtocolType.OVER_TEMPERATURE_PROTECTION,
+                struct.pack("<f", 80.0),
+            )
+            + make_field_response(
+                _ProtocolType.LOW_VOLTAGE_PROTECTION,
+                struct.pack("<f", 5.0),
+            )
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                settings = device.get_protection_settings()
+
+        self.assertEqual(
+            settings,
+            ProtectionSettings(
+                over_power_w=150.0,
+                over_temperature_c=80.0,
+                low_voltage_v=5.0,
+            ),
+        )
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(
+                    _ProtocolCommand.GET,
+                    _ProtocolType.OVER_POWER_PROTECTION,
+                ),
+                _encode_frame(
+                    _ProtocolCommand.GET,
+                    _ProtocolType.OVER_TEMPERATURE_PROTECTION,
+                ),
+                _encode_frame(
+                    _ProtocolCommand.GET,
+                    _ProtocolType.LOW_VOLTAGE_PROTECTION,
+                ),
+            ],
+        )
+
+    def test_set_protection_settings_requires_output_off_and_writes_only_opp_otp_lvp(
+        self,
+    ) -> None:
+        settings = ProtectionSettings(149.5, 79.5, 5.1)
+        fake_serial = FakeSerial(make_status_response())
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                device.set_protection_settings(settings)
+
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.STATUS),
+                _encode_frame(
+                    _ProtocolCommand.SET,
+                    _ProtocolType.OVER_POWER_PROTECTION,
+                    struct.pack("<f", 149.5),
+                ),
+                _encode_frame(
+                    _ProtocolCommand.SET,
+                    _ProtocolType.OVER_TEMPERATURE_PROTECTION,
+                    struct.pack("<f", 79.5),
+                ),
+                _encode_frame(
+                    _ProtocolCommand.SET,
+                    _ProtocolType.LOW_VOLTAGE_PROTECTION,
+                    struct.pack("<f", 5.1),
+                ),
+            ],
+        )
+
+    def test_set_protection_settings_rejects_output_on_and_invalid_values(self) -> None:
+        fake_serial = FakeSerial(make_status_response(output_enabled=1))
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                with self.assertRaises(DPS150Error):
+                    device.set_protection_settings(ProtectionSettings(150.0, 80.0, 5.0))
+
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.STATUS),
+            ],
+        )
+        for settings in (
+            object(),
+            ProtectionSettings(-1.0, 80.0, 5.0),
+            ProtectionSettings(150.0, float("nan"), 5.0),
+        ):
+            with self.subTest(settings=settings):
+                with self.assertRaises(ValueError):
+                    DPS150(port="COM64").set_protection_settings(settings)
 
     def test_get_preset_reads_first_and_last_slot_without_loading(self) -> None:
         fake_serial = FakeSerial(

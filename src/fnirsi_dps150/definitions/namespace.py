@@ -1,4 +1,4 @@
-"""Private protocol identifiers and payload layout for the DPS150."""
+"""DPS150 protocol identifiers and domain enums."""
 
 from enum import IntEnum
 from typing import Final
@@ -23,15 +23,29 @@ class _ProtocolCommand(IntEnum):
     CONNECT = 0xC1
 
 
+class RegulationMode(IntEnum):
+    """Device operating modes.
+
+    Attributes:
+        CC: Constant-current regulation.
+        CV: Constant-voltage regulation.
+    """
+
+    CC = 0
+    CV = 1
+
+
 class _ProtocolType(IntEnum):
     """Data type bytes used by the private DPS150 protocol.
 
     Attributes:
         SESSION: Session-connect payload type.
         STATUS: Device status snapshot type.
+        INPUT_VOLTAGE: Device input voltage type.
+        VOLTAGE_SETPOINT: Output voltage setpoint type.
+        CURRENT_SETPOINT: Output current setpoint type.
         MEASUREMENTS: Output measurements type.
-        VOLTAGE_SETPOINT: Voltage setpoint type.
-        CURRENT_SETPOINT: Current setpoint type.
+        TEMPERATURE: Device temperature type.
         OUTPUT: Output-enable state type.
         PRESET_1_VOLTAGE: Preset slot 1 voltage type.
         PRESET_1_CURRENT: Preset slot 1 current type.
@@ -45,15 +59,24 @@ class _ProtocolType(IntEnum):
         PRESET_5_CURRENT: Preset slot 5 current type.
         PRESET_6_VOLTAGE: Preset slot 6 voltage type.
         PRESET_6_CURRENT: Preset slot 6 current type.
+        OVER_POWER_PROTECTION: Over-power protection threshold type.
+        OVER_TEMPERATURE_PROTECTION: Over-temperature protection threshold type.
+        LOW_VOLTAGE_PROTECTION: Low-voltage protection threshold type.
+        REGULATION_MODE: Constant-current/constant-voltage mode type.
         BRIGHTNESS: Display brightness type.
         METERING_ENABLED: Metering enable type.
+        MODEL: Device model type.
+        HARDWARE_VERSION: Hardware version type.
+        FIRMWARE_VERSION: Firmware version type.
     """
 
     SESSION = 0x00
     STATUS = 0xFF
-    MEASUREMENTS = 195
+    INPUT_VOLTAGE = 192
     VOLTAGE_SETPOINT = 193
     CURRENT_SETPOINT = 194
+    MEASUREMENTS = 195
+    TEMPERATURE = 196
     PRESET_1_VOLTAGE = 197
     PRESET_1_CURRENT = 198
     PRESET_2_VOLTAGE = 199
@@ -66,9 +89,16 @@ class _ProtocolType(IntEnum):
     PRESET_5_CURRENT = 206
     PRESET_6_VOLTAGE = 207
     PRESET_6_CURRENT = 208
+    OVER_POWER_PROTECTION = 211
+    OVER_TEMPERATURE_PROTECTION = 212
+    LOW_VOLTAGE_PROTECTION = 213
     BRIGHTNESS = 214
     METERING_ENABLED = 216
     OUTPUT = 219
+    REGULATION_MODE = 221
+    MODEL = 222
+    HARDWARE_VERSION = 223
+    FIRMWARE_VERSION = 224
 
 
 class _StatusOffset(IntEnum):
