@@ -16,6 +16,7 @@
 - No baud-change command was sent to the target unit. The hardware evidence records no device/host resynchronization or recovery test.
 - The protocol comparison disagrees on the `B0`/type `0` index for 115200: one source says `0x04`; the others say `0x05`. Neither value is verified for the target, so neither is attempted.
 - This checkout exposes no public baud-changing operation; the existing connection remains at its configured 115200 baud.
+- The follow-up capability validation did not change this evidence; the conflicting index and recovery path remain unresolved.
 
 ## Evidence required before future support
 

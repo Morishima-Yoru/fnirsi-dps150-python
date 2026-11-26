@@ -162,6 +162,8 @@ class _SerialTransport:
 
         Raises:
             :class:`~fnirsi_dps150.DPS150TimeoutError`: If the deadline expires.
+            :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial reading
+                fails.
         """
         result = bytearray()
         while len(result) < count:
@@ -172,6 +174,10 @@ class _SerialTransport:
             serial_port.timeout = remaining
             try:
                 chunk = serial_port.read(count - len(result))
+            except (serial.SerialException, OSError) as error:
+                raise DPS150CommunicationError(
+                    "Serial communication with the DPS150 failed."
+                ) from error
             finally:
                 serial_port.timeout = self._timeout
 

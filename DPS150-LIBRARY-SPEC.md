@@ -28,8 +28,7 @@ The protocol research in [DPS150-PROTOCOL.md](./DPS150-PROTOCOL.md#L3) compares 
 - USB virtual serial (VCP/COM) transport through pySerial. Physical UART-TTL pinout and electrical compatibility are not claimed.
 - Synchronous, high-level controls for output voltage/current setpoints and explicit output enable/disable.
 - Explicit read methods for values and status. Callers decide when to read; no telemetry scheduler, watch loop, GUI, callback stream, or background thread.
-- OVP/OCP controls, preset operations, and documented system-setting fields, subject to the hardware-validation rules below.
-- The documented system mappings include brightness, volume, metering enable, capacity, and energy, plus baud selection; their labels and behavior are not independently confirmed by FNIRSI.
+- Target-verified reads/writes for preset slot values and the brightness/metering settings subset. Native preset loading, volume/buzzer, capacity/energy writes, OVP/OCP controls, and baud changing remain unsupported until their behavior is verified.
 - A private protocol implementation that handles framing, checksums, parsing, serial I/O, and device-specific behavior. Raw packet operations are not a stable public interface.
 - Typed dataclasses for structured read results.
 
@@ -52,8 +51,10 @@ device = DPS150(port="COM3")
 with device:
     device.set_voltage(5.0)
     device.set_current(1.0)
-    device.set_output(True)
+    preset = device.get_preset(1)
+    settings = device.get_system_settings()
     status = device.get_status()
+    device.set_output(True)
 ```
 
 The example illustrates the intended interface shape. Hardware evidence is feature-specific; see [DPS150-PROTOCOL.md](./DPS150-PROTOCOL.md#L3) for the tested command/state limits.
@@ -65,6 +66,7 @@ Interface requirements:
 - Setting a setpoint never enables the output. Output changes require an explicit method call.
 - Opening or closing the serial connection never changes output state.
 - Read operations are explicit and synchronous. They return typed dataclasses rather than loosely specified dictionaries or tuples.
+- Preset slot and verified system-setting writes require output disabled; preset writes change stored fields only and never simulate loading through active setpoints.
 - Communication, frame/checksum, unsupported-feature, and invalid-input failures are surfaced explicitly. Preserve underlying exception causes; do not return success-shaped defaults.
 - Use a finite configurable I/O timeout. Do not automatically retry reads or writes; callers may make their own retry decision.
 
@@ -87,8 +89,8 @@ Use a private serial-adapter seam inside the implementation. The production adap
 The reference implementations conflict on some operations. Test the actual device before claiming these features work:
 
 - **OVP/OCP:** references disagree between one-byte flags and float32 thresholds ([protocol notes](./DPS150-PROTOCOL.md#L53)). Expose only the protection semantics confirmed on the target device; do not silently select or auto-detect a dialect.
-- **Presets:** references map six voltage/current preset pairs, but do not establish a separate hardware load/save command ([protocol notes](./DPS150-PROTOCOL.md#L65)). Native load/save behavior is required. If the device does not expose native operations, omit preset control rather than emulating it with active setpoint writes.
-- **System settings:** cover the fields mapped in the protocol document, but distinguish verified behavior from unverified mappings ([protocol notes](./DPS150-PROTOCOL.md#L28)). Unsupported operations must fail explicitly. Baud changes additionally require successful host/device resynchronization.
+- **Presets:** COM64 verified GET/SET readback for all six native voltage/current slot fields while output was OFF. `get_preset()` and `set_preset()` expose stored values only. No native load command or power-cycle persistence was verified, so there is no load method and no claim that writing a slot applies it to active setpoints.
+- **System settings:** COM64 verified brightness read/write (target-tested levels 0, 9, and 10) and metering enable read/write (0/1), with restoration and output OFF. Volume/buzzer was excluded; capacity/energy have raw GET observations only and no public API. OVP/OCP writes and baud changing remain unsupported because their semantics or recovery paths are unresolved.
 - **Limits and timing:** device-enforced ranges, response timing, error replies, and cross-firmware behavior remain unverified until measured.
 
 ## Safety and side effects
@@ -96,6 +98,7 @@ The reference implementations conflict on some operations. Test the actual devic
 - Normal unit tests must never enable device output.
 - Hardware writes are opt-in and separated from ordinary tests.
 - An output-ON hardware check is a separate manual opt-in. It requires caller-provided voltage/current ceilings and explicit confirmation, assumes no external load, verifies command/state readback only, and attempts to turn output off afterward. It does not verify loaded regulation or current delivery.
+- Preset and system-setting hardware writes are tested separately with output OFF; these write methods reject an enabled-output status.
 - Do not automatically alter output state during construction, connection, disconnection, or context-manager cleanup.
 
 ## Validation and acceptance criteria
@@ -104,7 +107,7 @@ The reference implementations conflict on some operations. Test the actual devic
 2. The package installs locally and its source remains compatible with CPython 3.10.
 3. Opening and closing the connection does not change output state; setpoint writes do not enable output.
 4. Device writes and reads for setpoints, output state, protections, presets, and system fields are verified on the target unit before being described as supported.
-5. Preset methods are included only if native load/save is verified. Unsupported or unverified operations fail explicitly rather than silently succeeding.
+5. Preset slot methods are included only for verified native stored fields. A load method is included only if a native load operation is verified; active setpoint writes are never presented as preset loading.
 6. Hardware tests are not part of the default automated test run. Any output-ON check requires explicit opt-in and the safeguards above.
 7. Documentation separates observed implementation behavior from confirmed target-device behavior and makes unverified limits clear.
 

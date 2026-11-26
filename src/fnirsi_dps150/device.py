@@ -9,13 +9,17 @@ from types import TracebackType
 from ._transport import _SerialTransport
 from .definitions.exceptions import DPS150Error, DPS150ProtocolError
 from .definitions.namespace import (
+    _BRIGHTNESS_MAX,
+    _BRIGHTNESS_MIN,
     _MEASUREMENTS_PAYLOAD_SIZE,
+    _PRESET_SLOT_COUNT,
+    _PRESET_SLOT_MIN,
     _STATUS_PAYLOAD_SIZE,
     _ProtocolCommand,
     _ProtocolType,
     _StatusOffset,
 )
-from .models import DeviceStatus, Measurements
+from .models import DeviceStatus, Measurements, Preset, SystemSettings
 
 
 class DPS150:
@@ -158,6 +162,175 @@ class DPS150:
             output_power=_read_float32(frame.payload, 8, "output power"),
         )
 
+    def get_preset(self, slot: int) -> Preset:
+        """Read stored voltage and current values without applying the preset.
+
+        Args:
+            slot: One-based preset slot from 1 through 6.
+
+        Returns:
+            :class:`~fnirsi_dps150.Preset` containing the stored values.
+
+        Raises:
+            ValueError: If ``slot`` is outside the supported range.
+            :class:`~fnirsi_dps150.DPS150ProtocolError`: If either field is
+                malformed or invalid.
+            :class:`~fnirsi_dps150.DPS150ConnectionError`: If the device is not
+                open.
+            :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
+                communication fails.
+        """
+        voltage_type, current_type = _preset_type_ids(slot)
+        voltage_frame = self._transport.exchange(
+            _ProtocolCommand.GET,
+            voltage_type,
+            b"",
+            expected_response=(_ProtocolCommand.GET, voltage_type),
+        )
+        current_frame = self._transport.exchange(
+            _ProtocolCommand.GET,
+            current_type,
+            b"",
+            expected_response=(_ProtocolCommand.GET, current_type),
+        )
+        voltage = _read_float32(voltage_frame.payload, 0, "preset voltage")
+        current = _read_float32(current_frame.payload, 0, "preset current")
+        if voltage < 0 or current < 0:
+            raise DPS150ProtocolError("Preset contains a negative value.")
+        return Preset(voltage=voltage, current=current)
+
+    def get_system_settings(self) -> SystemSettings:
+        """Read verified brightness and metering settings.
+
+        Volume, capacity, and energy are intentionally omitted because their
+        semantics or write behavior have not been verified on the target unit.
+
+        Returns:
+            :class:`~fnirsi_dps150.SystemSettings` with brightness and metering
+            state.
+
+        Raises:
+            :class:`~fnirsi_dps150.DPS150ProtocolError`: If either field is
+                malformed or invalid.
+            :class:`~fnirsi_dps150.DPS150ConnectionError`: If the device is not
+                open.
+            :class:`~fnirsi_dps150.DPS150CommunicationError`: If serial
+                communication fails.
+        """
+        brightness_frame = self._transport.exchange(
+            _ProtocolCommand.GET,
+            _ProtocolType.BRIGHTNESS,
+            b"",
+            expected_response=(_ProtocolCommand.GET, _ProtocolType.BRIGHTNESS),
+        )
+        metering_frame = self._transport.exchange(
+            _ProtocolCommand.GET,
+            _ProtocolType.METERING_ENABLED,
+            b"",
+            expected_response=(
+                _ProtocolCommand.GET,
+                _ProtocolType.METERING_ENABLED,
+            ),
+        )
+        if len(brightness_frame.payload) < 1:
+            raise DPS150ProtocolError("Brightness response is too short.")
+        if len(metering_frame.payload) < 1:
+            raise DPS150ProtocolError("Metering response is too short.")
+
+        brightness = brightness_frame.payload[0]
+        metering_enabled = metering_frame.payload[0]
+        if brightness > _BRIGHTNESS_MAX:
+            raise DPS150ProtocolError("Device returned an invalid brightness level.")
+        if metering_enabled not in (0, 1):
+            raise DPS150ProtocolError("Device returned an invalid metering state.")
+        return SystemSettings(
+            brightness=brightness,
+            metering_enabled=bool(metering_enabled),
+        )
+
+    def set_preset(self, slot: int, preset: Preset) -> None:
+        """Write voltage and current values to a stored preset slot.
+
+        This writes the native preset fields; it does not load them into the
+        active setpoints. The two field writes are not atomic.
+
+        Args:
+            slot: One-based preset slot from 1 through 6.
+            preset: :class:`~fnirsi_dps150.Preset` values to store.
+
+        Raises:
+            ValueError: If the slot or preset values are invalid or exceed the
+                device-reported limits.
+            :class:`~fnirsi_dps150.DPS150Error`: If output is enabled or serial
+                status/communication fails.
+        """
+        voltage_type, current_type = _preset_type_ids(slot)
+        if not isinstance(preset, Preset):
+            raise ValueError("preset must be a Preset instance.")
+        voltage, voltage_payload = _prepare_setpoint(preset.voltage, "voltage")
+        current, current_payload = _prepare_setpoint(preset.current, "current")
+        status = self._get_status_for_setting_write()
+        if voltage > status.voltage_limit:
+            raise ValueError(
+                f"Preset voltage {voltage} V exceeds the device-reported limit "
+                f"of {status.voltage_limit} V."
+            )
+        if current > status.current_limit:
+            raise ValueError(
+                f"Preset current {current} A exceeds the device-reported limit "
+                f"of {status.current_limit} A."
+            )
+        self._transport.send(_ProtocolCommand.SET, voltage_type, voltage_payload)
+        self._transport.send(_ProtocolCommand.SET, current_type, current_payload)
+
+    def set_brightness(self, brightness: int) -> None:
+        """Set the verified display brightness level.
+
+        Args:
+            brightness: Brightness level from 0 through 10.
+
+        Raises:
+            ValueError: If ``brightness`` is not an integer in the supported
+                range.
+            :class:`~fnirsi_dps150.DPS150Error`: If output is enabled, status
+                cannot be read, or serial communication fails.
+        """
+        if (
+            isinstance(brightness, bool)
+            or not isinstance(brightness, int)
+            or not _BRIGHTNESS_MIN <= brightness <= _BRIGHTNESS_MAX
+        ):
+            raise ValueError(
+                f"brightness must be an integer from {_BRIGHTNESS_MIN} through "
+                f"{_BRIGHTNESS_MAX}."
+            )
+        self._get_status_for_setting_write()
+        self._transport.send(
+            _ProtocolCommand.SET,
+            _ProtocolType.BRIGHTNESS,
+            bytes((brightness,)),
+        )
+
+    def set_metering_enabled(self, enabled: bool) -> None:
+        """Enable or disable the verified metering setting.
+
+        Args:
+            enabled: ``True`` to enable metering, ``False`` to disable it.
+
+        Raises:
+            ValueError: If ``enabled`` is not a bool.
+            :class:`~fnirsi_dps150.DPS150Error`: If output is enabled or serial
+                status/communication fails.
+        """
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be a bool.")
+        self._get_status_for_setting_write()
+        self._transport.send(
+            _ProtocolCommand.SET,
+            _ProtocolType.METERING_ENABLED,
+            bytes((int(enabled),)),
+        )
+
     def set_voltage(self, voltage: float) -> None:
         """Set the output voltage without enabling output.
 
@@ -209,8 +382,9 @@ class DPS150:
     def set_output(self, enabled: bool) -> None:
         """Send an explicit output-enable or output-disable command.
 
-        The method does not read back the resulting state. Target-side behavior
-        for this command has not been verified on the test unit.
+        The method does not read back the resulting state. Command/state
+        readback was verified on COM64 without a load; loaded behavior and
+        emergency-shutdown reliability were not verified.
 
         Args:
             enabled: ``True`` to enable output, ``False`` to disable it.
@@ -227,6 +401,23 @@ class DPS150:
             bytes((int(enabled),)),
         )
 
+    def _get_status_for_setting_write(self) -> DeviceStatus:
+        """Read status after requiring capability writes to be output-OFF.
+
+        Returns:
+            The current status with output disabled.
+
+        Raises:
+            :class:`~fnirsi_dps150.DPS150Error`: If output is enabled. Read
+                failures are propagated from :meth:`get_status`.
+        """
+        status = self.get_status()
+        if status.output_enabled:
+            raise DPS150Error(
+                "Preset and system-setting writes are only verified with output disabled."
+            )
+        return status
+
     def __enter__(self) -> DPS150:
         """Open this device for use in a ``with`` statement."""
         self.open()
@@ -240,6 +431,31 @@ class DPS150:
     ) -> None:
         """Close the host serial port when leaving a ``with`` statement."""
         self.close()
+
+
+def _preset_type_ids(slot: int) -> tuple[_ProtocolType, _ProtocolType]:
+    """Map a one-based preset slot to its native voltage and current types.
+
+    Args:
+        slot: Preset slot from 1 through 6.
+
+    Returns:
+        Voltage and current protocol types for the slot.
+
+    Raises:
+        ValueError: If ``slot`` is not an integer from 1 through 6.
+    """
+    if (
+        isinstance(slot, bool)
+        or not isinstance(slot, int)
+        or not _PRESET_SLOT_MIN <= slot <= _PRESET_SLOT_COUNT
+    ):
+        raise ValueError(
+            f"slot must be an integer from {_PRESET_SLOT_MIN} through "
+            f"{_PRESET_SLOT_COUNT}."
+        )
+    voltage_type = int(_ProtocolType.PRESET_1_VOLTAGE) + 2 * (slot - 1)
+    return _ProtocolType(voltage_type), _ProtocolType(voltage_type + 1)
 
 
 def _read_float32(payload: bytes, offset: int, field_name: str) -> float:

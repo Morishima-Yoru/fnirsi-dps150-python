@@ -6,14 +6,16 @@ from unittest.mock import patch
 
 import serial
 
-from fnirsi_dps150 import DPS150, Measurements
+from fnirsi_dps150 import DPS150, Measurements, Preset, SystemSettings
 from fnirsi_dps150._protocol import _encode_frame
 from fnirsi_dps150.definitions.exceptions import (
     DPS150CommunicationError,
     DPS150ConnectionError,
+    DPS150Error,
     DPS150ProtocolError,
     DPS150TimeoutError,
 )
+from fnirsi_dps150.definitions.namespace import _ProtocolCommand, _ProtocolType
 
 
 class FakeSerial:
@@ -22,6 +24,7 @@ class FakeSerial:
         response: bytes = b"",
         max_read_size: int = 1024,
         write_error: OSError | None = None,
+        read_error: Exception | None = None,
     ) -> None:
         self.timeout: float | None = 1.0
         self.is_open = True
@@ -30,6 +33,7 @@ class FakeSerial:
         self.writes: list[bytes] = []
         self.close_calls = 0
         self.write_error = write_error
+        self.read_error = read_error
 
     def write(self, packet: bytes) -> int:
         if self.write_error is not None:
@@ -38,6 +42,8 @@ class FakeSerial:
         return len(packet)
 
     def read(self, count: int) -> bytes:
+        if self.read_error is not None:
+            raise self.read_error
         if not self.response:
             return b""
         read_size = min(count, self.max_read_size, len(self.response))
@@ -73,6 +79,15 @@ def make_measurements_response(
 ) -> bytes:
     payload = struct.pack("<3f", voltage, current, power)
     return _encode_frame(0xA1, 195, payload, header=0xF0)
+
+
+def make_field_response(type_id: int, payload: bytes) -> bytes:
+    return _encode_frame(
+        _ProtocolCommand.GET,
+        type_id,
+        payload,
+        header=0xF0,
+    )
 
 
 class DeviceTests(unittest.TestCase):
@@ -195,6 +210,241 @@ class DeviceTests(unittest.TestCase):
             with DPS150(port="COM64") as device:
                 with self.assertRaises(DPS150ProtocolError):
                     device.get_measurements()
+
+    def test_get_preset_reads_first_and_last_slot_without_loading(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(
+                _ProtocolType.PRESET_1_VOLTAGE,
+                struct.pack("<f", 5.0),
+            )
+            + make_field_response(
+                _ProtocolType.PRESET_1_CURRENT,
+                struct.pack("<f", 1.0),
+            )
+            + make_field_response(
+                _ProtocolType.PRESET_6_VOLTAGE,
+                struct.pack("<f", 5.5),
+            )
+            + make_field_response(
+                _ProtocolType.PRESET_6_CURRENT,
+                struct.pack("<f", 1.5),
+            )
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                first = device.get_preset(1)
+                last = device.get_preset(6)
+
+        self.assertEqual(first, Preset(voltage=5.0, current=1.0))
+        self.assertEqual(last, Preset(voltage=5.5, current=1.5))
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.PRESET_1_VOLTAGE),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.PRESET_1_CURRENT),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.PRESET_6_VOLTAGE),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.PRESET_6_CURRENT),
+            ],
+        )
+
+    def test_get_preset_rejects_invalid_slot_before_serial_io(self) -> None:
+        for slot in (0, 7, True, 1.0):
+            with self.subTest(slot=slot):
+                with self.assertRaises(ValueError):
+                    DPS150(port="COM64").get_preset(slot)
+
+    def test_get_preset_rejects_negative_values(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(
+                _ProtocolType.PRESET_1_VOLTAGE,
+                struct.pack("<f", -1.0),
+            )
+            + make_field_response(
+                _ProtocolType.PRESET_1_CURRENT,
+                struct.pack("<f", 1.0),
+            )
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                with self.assertRaises(DPS150ProtocolError):
+                    device.get_preset(1)
+
+    def test_set_preset_writes_slot_fields_without_changing_active_output(self) -> None:
+        fake_serial = FakeSerial(make_status_response())
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                device.set_preset(1, Preset(voltage=5.25, current=1.25))
+
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.STATUS),
+                _encode_frame(
+                    _ProtocolCommand.SET,
+                    _ProtocolType.PRESET_1_VOLTAGE,
+                    struct.pack("<f", 5.25),
+                ),
+                _encode_frame(
+                    _ProtocolCommand.SET,
+                    _ProtocolType.PRESET_1_CURRENT,
+                    struct.pack("<f", 1.25),
+                ),
+            ],
+        )
+
+    def test_set_preset_rejects_output_on_and_values_over_device_limits(self) -> None:
+        for response, preset, error_type in (
+            (make_status_response(output_enabled=1), Preset(5.0, 1.0), DPS150Error),
+            (make_status_response(), Preset(5.0, 5.11), ValueError),
+        ):
+            with self.subTest(error_type=error_type.__name__):
+                fake_serial = FakeSerial(response)
+                with patch(
+                    "fnirsi_dps150._transport.serial.Serial",
+                    return_value=fake_serial,
+                ):
+                    with DPS150(port="COM64") as device:
+                        with self.assertRaises(error_type):
+                            device.set_preset(1, preset)
+
+                self.assertEqual(
+                    fake_serial.writes,
+                    [
+                        _encode_frame(
+                            _ProtocolCommand.CONNECT,
+                            _ProtocolType.SESSION,
+                            b"\x01",
+                        ),
+                        _encode_frame(_ProtocolCommand.GET, _ProtocolType.STATUS),
+                    ],
+                )
+
+    def test_get_system_settings_reads_only_verified_non_buzzer_fields(self) -> None:
+        fake_serial = FakeSerial(
+            make_field_response(_ProtocolType.BRIGHTNESS, b"\x0a")
+            + make_field_response(_ProtocolType.METERING_ENABLED, b"\x01")
+        )
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                settings = device.get_system_settings()
+
+        self.assertEqual(
+            settings,
+            SystemSettings(brightness=10, metering_enabled=True),
+        )
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.BRIGHTNESS),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.METERING_ENABLED),
+            ],
+        )
+
+    def test_get_system_settings_rejects_invalid_field_values(self) -> None:
+        invalid_responses = (
+            make_field_response(_ProtocolType.BRIGHTNESS, b"\x0b")
+            + make_field_response(_ProtocolType.METERING_ENABLED, b"\x00"),
+            make_field_response(_ProtocolType.BRIGHTNESS, b"\x0a")
+            + make_field_response(_ProtocolType.METERING_ENABLED, b"\x02"),
+            make_field_response(_ProtocolType.BRIGHTNESS, b"")
+            + make_field_response(_ProtocolType.METERING_ENABLED, b"\x00"),
+            make_field_response(_ProtocolType.BRIGHTNESS, b"\x0a")
+            + make_field_response(_ProtocolType.METERING_ENABLED, b""),
+        )
+        for response in invalid_responses:
+            with self.subTest(response=response):
+                fake_serial = FakeSerial(response)
+                with patch(
+                    "fnirsi_dps150._transport.serial.Serial",
+                    return_value=fake_serial,
+                ):
+                    with DPS150(port="COM64") as device:
+                        with self.assertRaises(DPS150ProtocolError):
+                            device.get_system_settings()
+
+    def test_system_setting_writes_require_output_off_and_do_not_toggle_it(self) -> None:
+        fake_serial = FakeSerial(make_status_response() * 2)
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                device.set_brightness(9)
+                device.set_metering_enabled(True)
+
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.STATUS),
+                _encode_frame(
+                    _ProtocolCommand.SET,
+                    _ProtocolType.BRIGHTNESS,
+                    b"\x09",
+                ),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.STATUS),
+                _encode_frame(
+                    _ProtocolCommand.SET,
+                    _ProtocolType.METERING_ENABLED,
+                    b"\x01",
+                ),
+            ],
+        )
+
+    def test_system_setting_writes_reject_invalid_values_without_writing(self) -> None:
+        fake_serial = FakeSerial()
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                for brightness in (True, -1, 11, 1.5):
+                    with self.subTest(brightness=brightness):
+                        with self.assertRaises(ValueError):
+                            device.set_brightness(brightness)
+                with self.assertRaises(ValueError):
+                    device.set_metering_enabled(1)
+
+        self.assertEqual(
+            fake_serial.writes,
+            [_encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01")],
+        )
+
+    def test_system_setting_writes_reject_output_on(self) -> None:
+        fake_serial = FakeSerial(make_status_response(output_enabled=1) * 2)
+        with patch(
+            "fnirsi_dps150._transport.serial.Serial",
+            return_value=fake_serial,
+        ):
+            with DPS150(port="COM64") as device:
+                with self.assertRaises(DPS150Error):
+                    device.set_brightness(9)
+                with self.assertRaises(DPS150Error):
+                    device.set_metering_enabled(True)
+
+        self.assertEqual(
+            fake_serial.writes,
+            [
+                _encode_frame(_ProtocolCommand.CONNECT, _ProtocolType.SESSION, b"\x01"),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.STATUS),
+                _encode_frame(_ProtocolCommand.GET, _ProtocolType.STATUS),
+            ],
+        )
 
     def test_setpoints_send_float32_without_output_control(self) -> None:
         fake_serial = FakeSerial(make_status_response() * 2)
@@ -335,6 +585,24 @@ class DeviceTests(unittest.TestCase):
                 _encode_frame(0xA1, 0xFF),
             ],
         )
+
+    def test_serial_read_failures_are_wrapped_and_timeout_is_restored(self) -> None:
+        for read_error in (
+            serial.SerialException("read failed"),
+            OSError("read failed"),
+        ):
+            with self.subTest(error_type=type(read_error).__name__):
+                fake_serial = FakeSerial(read_error=read_error)
+                with patch(
+                    "fnirsi_dps150._transport.serial.Serial",
+                    return_value=fake_serial,
+                ):
+                    with self.assertRaises(DPS150CommunicationError) as raised:
+                        with DPS150(port="COM64", timeout=0.25) as device:
+                            device.get_status()
+
+                self.assertIs(raised.exception.__cause__, read_error)
+                self.assertEqual(fake_serial.timeout, 0.25)
 
     def test_open_failure_preserves_serial_exception(self) -> None:
         with patch(

@@ -35,3 +35,29 @@ class Measurements:
     output_voltage: float
     output_current: float
     output_power: float
+
+
+@dataclass(frozen=True, slots=True)
+class Preset:
+    """Voltage and current values stored in one device preset slot.
+
+    Attributes:
+        voltage: Preset voltage in volts.
+        current: Preset current limit in amperes.
+    """
+
+    voltage: float
+    current: float
+
+
+@dataclass(frozen=True, slots=True)
+class SystemSettings:
+    """Verified non-buzzer system settings read from the target device.
+
+    Attributes:
+        brightness: Display brightness level from 0 through 10.
+        metering_enabled: Whether metering is enabled.
+    """
+
+    brightness: int
+    metering_enabled: bool

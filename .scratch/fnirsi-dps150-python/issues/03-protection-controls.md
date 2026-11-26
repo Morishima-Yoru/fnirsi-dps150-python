@@ -10,5 +10,6 @@
 - [ ] OVP/OCP meanings and GET representations are confirmed. **Unverified:** reference projects conflict between one-byte enable flags and float32 thresholds; the target GET payloads do not resolve the meaning.
 - [ ] SET types, payloads, valid ranges, readback behavior, and output-state side effects are confirmed. **Unverified:** no protection SET was tested; do not infer write semantics from GET payload shape.
 - [ ] OVP/OCP trip behavior is verified. **Unverified:** no protection trip was tested.
-- [ ] Public protection APIs and fake-serial tests implement only confirmed behavior; any hardware writes are opt-in with documented recovery steps. **Deferred:** no public protection API or fake protection tests were added because the target semantics and write behavior are unverified.
+- [x] The follow-up COM64 read repeated the same type 209–213 payloads with output OFF. No protection SET or trip test was attempted because the representation conflict leaves the original enable state and safe restoration path unverified.
+- [x] No public protection API or fake protection tests were added; the missing evidence is documented rather than guessed.
 - [x] The missing evidence is recorded and the library does not claim protection support on this target/evidence.

@@ -44,10 +44,13 @@ from fnirsi_dps150 import DPS150
 with DPS150(port="COM3", timeout=1.0) as device:
     status = device.get_status()
     measurements = device.get_measurements()
+    preset = device.get_preset(1)
+    settings = device.get_system_settings()
     device.set_voltage(5.0)
     device.set_current(1.0)
 
 print(status.output_enabled, measurements.output_voltage)
+print(preset, settings)
 ```
 
 The library does not start a background reader. On the tested unit, status
@@ -63,12 +66,19 @@ reliability. The nonzero measurement field mapping is based on
 reverse-engineered sources; only zero measurements were observed on the target
 unit while output was OFF.
 
-Protection, preset, system-setting, and baud-changing APIs are not exposed.
-The target returned raw GET responses for related types, but that did not
-verify their meanings, write behavior, native preset operations, or baud
-resynchronization. These methods are omitted rather than stubbed, so attempts
-to call them fail with `AttributeError`. See the target-specific evidence and
-raw payloads in
+On COM64, read/write access to all six stored preset slots was verified while
+output was OFF. `get_preset(slot)` and `set_preset(slot, Preset(...))` access
+the device's stored voltage/current fields; `set_preset()` does not load a slot
+into the active setpoints. Its two writes are not atomic, and persistence
+across a device power cycle is unverified. No native preset-load operation was
+identified, so the library exposes no `load_preset()` method.
+
+The verified system-setting subset is brightness (0–10) and metering enable.
+`get_system_settings()` reads only those fields; `set_brightness()` and
+`set_metering_enabled()` require output OFF. Volume/buzzer was excluded from
+this validation, and capacity/energy writes remain unsupported. OVP/OCP and
+baud-changing APIs are also omitted because their SET semantics or recovery
+paths remain unverified. See the target-specific evidence and raw payloads in
 [`DPS150-PROTOCOL.md`](DPS150-PROTOCOL.md).
 
 Automated tests use a fake serial port and never enable output. A hardware

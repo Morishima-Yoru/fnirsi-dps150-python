@@ -49,9 +49,13 @@
 | 226 | 4 | `943c9e41`（較早讀值：`d4249e41`） |
 | 227 | 4 | `3333a340` |
 
-- 此掃描只確認各 GET 回應的 type、長度與 bytes。OVP/OCP 寫入及保護觸發、系統設定語義與寫入、原生 preset load/save、output-control SET，以及 baud 切換與主機重同步均未驗證；這些能力不對目標機宣稱支援。
+- 上表 type 215 是先前的唯讀觀察；本次 capability validation 沒有查詢或寫入 volume/buzzer。
+- 後續在 output OFF 時，對六組 preset slot 各自將 voltage/current 欄位暫改為 `5.25 V` / `1.25 A`，GET readback 均符合；隨後各欄位還原為 `5.0 V` / `1.0 A` 並再次讀回。每組操作後 status 仍為 output OFF、active setpoints `12.0 V` / `5.0 A`。這確認 types 197–208 的 slot 欄位 GET/SET，不確認獨立 native load 命令，也未測斷電後保存。
+- 在 output OFF 時，type 214 brightness 由 `10` 改為 `9` 及 `0` 均讀回相同值，最後還原為 `10`；type 216 metering 由 `0` 改為 `1` 讀回後還原為 `0`。high-level setter 的讀回也確認相同結果；操作期間 output 與 active setpoints 不變。測試不涉及 type 215。
+- Types 217/218 的 raw GET 仍為零；其欄位語義與 SET/restore behavior 未驗證，未寫入或公開 API。
+- OVP/OCP 的 GET raw values 仍無法裁定門檻與 enable-flag 表示法；沒有送出 protection SET，也沒有測試保護觸發。Native preset load、baud 切換／重同步同樣未驗證，相關操作仍不支援。先前的 output-control SET type 219 已在獨立無負載測試中確認 ON/OFF command/state readback，但不代表負載能力或緊急 shutdown 可靠性。
 
-目前程式依據上述單一裝置觀察實作 session、status 與 setpoint 控制；measurements 的回應長度及 output-OFF 零值已觀察，但非零欄位語義仍依據逆向來源。其他型號／韌體的行為仍未確認。
+目前程式依據上述單一裝置觀察實作 session、status、setpoint、preset slot 與 brightness/metering 控制；measurements 的回應長度及 output-OFF 零值已觀察，但非零欄位語義仍依據逆向來源。其他型號／韌體的行為仍未確認。
 
 ## 封包與傳輸
 
