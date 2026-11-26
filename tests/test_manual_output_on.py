@@ -51,7 +51,29 @@ class ManualOutputOnTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "voltage setpoint"):
                 manual_output_on.main()
 
-        self.assertEqual(device.set_output.call_args_list, [call(False)])
+        device.set_output.assert_not_called()
+        device.close.assert_called_once_with()
+
+    def test_already_enabled_output_is_not_changed(self) -> None:
+        status = DeviceStatus(5.0, 0.5, True, 20.0, 5.0)
+        with (
+            patch.dict(
+                os.environ,
+                {"DPS150_ALLOW_OUTPUT_ON_TEST": "1"},
+                clear=True,
+            ),
+            patch(
+                "builtins.input",
+                side_effect=["NO LOAD CONNECTED", "5", "1"],
+            ),
+            patch("manual_output_on.DPS150") as device_factory,
+        ):
+            device = device_factory.return_value
+            device.get_status.return_value = status
+            with self.assertRaisesRegex(RuntimeError, "already enabled"):
+                manual_output_on.main()
+
+        device.set_output.assert_not_called()
         device.close.assert_called_once_with()
 
     def test_output_is_turned_off_after_state_readback_failure(self) -> None:

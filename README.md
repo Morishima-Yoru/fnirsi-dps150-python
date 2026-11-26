@@ -54,10 +54,12 @@ The library does not start a background reader. On the tested unit, status
 responses can be interleaved with other valid field frames; `get_status()`
 matches the requested snapshot within one finite timeout without retrying the
 request. Setpoint limits are checked against the device-reported values using
-the exact float32 values sent on the wire. The target unit has not been
-command-tested for output control (`SET type 219`); `set_output()` sends a
-command but does not verify the resulting state. Do not rely on it as an
-emergency shutdown. The nonzero measurement field mapping is based on
+the exact float32 values sent on the wire. A separate, manually gated no-load
+test on COM64 verified that output control (`SET type 219`) changed the
+reported state ON and then OFF using `12 V` / `5 A` ceilings, without changing
+the existing setpoints. This verifies command/state readback only—not loaded
+regulation, current delivery, 100 W capability, or emergency-shutdown
+reliability. The nonzero measurement field mapping is based on
 reverse-engineered sources; only zero measurements were observed on the target
 unit while output was OFF.
 
@@ -73,8 +75,9 @@ Automated tests use a fake serial port and never enable output. A hardware
 test that enables output must remain a separate manual opt-in, assume no load,
 require explicit operator confirmation and caller-provided voltage/current
 ceilings, verify only command and state readback, and attempt to turn output
-off afterward. The gated helper is not part of default test discovery; it was
-not run as part of this change. To run it deliberately in PowerShell:
+off afterward. The gated helper is not part of default test discovery. Its
+COM64 run used the unchanged `12.0 V` / `5.0 A` setpoints as ceilings and
+confirmed OFF afterward. To run it deliberately in PowerShell:
 
 ```powershell
 $env:DPS150_ALLOW_OUTPUT_ON_TEST = "1"

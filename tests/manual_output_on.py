@@ -44,12 +44,14 @@ def main() -> None:
     voltage_ceiling, current_ceiling = _confirm_test()
     device = DPS150(port=os.environ.get("DPS150_PORT", "COM64"), timeout=2.0)
     device.open()
+    output_enable_attempted = False
     try:
         initial_status = device.get_status()
         if initial_status.output_enabled:
             raise RuntimeError("Output was already enabled; refusing to run the test.")
         _validate_ceilings(initial_status, voltage_ceiling, current_ceiling)
 
+        output_enable_attempted = True
         device.set_output(True)
         enabled_status = device.get_status()
         if not enabled_status.output_enabled:
@@ -57,9 +59,12 @@ def main() -> None:
         _validate_ceilings(enabled_status, voltage_ceiling, current_ceiling)
     finally:
         try:
-            device.set_output(False)
-            if device.get_status().output_enabled:
-                raise RuntimeError("The device still reports output enabled after shutdown.")
+            if output_enable_attempted:
+                device.set_output(False)
+                if device.get_status().output_enabled:
+                    raise RuntimeError(
+                        "The device still reports output enabled after shutdown."
+                    )
         finally:
             device.close()
 

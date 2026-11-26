@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation is complete for behavior verified on the target unit. Unverified hardware-dependent operations remain intentionally unexposed; output-control command effects and nonzero measurement semantics are also not confirmed on the target. This specification remains a draft for review, not an official FNIRSI device protocol specification.
+Implementation is complete for behavior verified on the target unit. Output enable/disable command state readback was verified in a separately gated no-load test; loaded regulation, current delivery, and nonzero measurement semantics remain unconfirmed. Other unverified hardware-dependent operations remain intentionally unexposed. This specification remains a draft for review, not an official FNIRSI device protocol specification.
 
 ## Purpose
 
@@ -56,7 +56,7 @@ with device:
     status = device.get_status()
 ```
 
-The example illustrates the intended shape, not a claim that those commands have already been verified on hardware.
+The example illustrates the intended interface shape. Hardware evidence is feature-specific; see [DPS150-PROTOCOL.md](./DPS150-PROTOCOL.md#L3) for the tested command/state limits.
 
 Interface requirements:
 
