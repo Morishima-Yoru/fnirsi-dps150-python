@@ -70,7 +70,7 @@ Interface requirements:
 - Reject non-finite and out-of-range inputs with an explicit exception; never silently clamp or truncate. Enforce limits only when supported by verified device information.
 - Setting a setpoint never enables the output. Output changes require an explicit method call.
 - Opening or closing the serial connection never changes output state.
-- Read operations are explicit and synchronous. They return typed dataclasses rather than loosely specified dictionaries or tuples.
+- Read operations are explicit and synchronous. Single-field reads return typed scalar or enum values; structured snapshots return typed dataclasses rather than loosely specified dictionaries or tuples.
 - Preset slot, verified system-setting, and OPP/OTP/LVP writes require output disabled; preset writes change stored fields only and never simulate loading through active setpoints.
 - Communication, frame/checksum, unsupported-feature, and invalid-input failures are surfaced explicitly. Preserve underlying exception causes; do not return success-shaped defaults.
 - Use a finite configurable I/O timeout. Do not automatically retry reads or writes; callers may make their own retry decision.
